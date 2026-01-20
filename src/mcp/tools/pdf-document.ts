@@ -28,39 +28,44 @@ import type { StorageExtra } from '../../types.ts';
 // ============================================================================
 // Note: Reusable schemas are now imported from ../../schemas/content.ts
 
+const withDefault = <T extends z.ZodTypeAny>(def: unknown, schema: T) =>
+  z.preprocess((v) => (v === undefined ? def : v), schema);
+const defaultMargins = { top: 72, bottom: 72, left: 72, right: 72 }; // 1 inch
+const defaultPageSetup = { size: "LETTER" as const, margins: defaultMargins };
+
+
+const marginsSchema = z.object({
+  top: z.number(),
+  bottom: z.number(),
+  left: z.number(),
+  right: z.number(),
+}).strict();
+
 const inputSchema = z.object({
-  filename: z.string().optional().describe('Optional logical filename (metadata only). Storage uses UUID. Defaults to "document.pdf".'),
-  title: z.string().optional().describe('Document title metadata'),
-  author: z.string().optional().describe('Document author metadata'),
-  font: z.string().optional().describe('Font strategy (default: auto). Built-ins: Helvetica, Times-Roman, Courier. Use a path or URL for Unicode.'),
-  markdown: z.boolean().optional().describe('Enable markdown parsing (links, **bold**, *italic*). Default: false.'),
-  color: z
-    .object({
-      background: z.string().optional().describe('Page background color (hex like "#000000" or named color). Default: white.'),
-      hyperlink: z.string().optional().describe('Color for hyperlink text (hex like "#0066CC" or named color). Default: #0066CC (classic browser blue).'),
-    })
-    .optional()
-    .describe('Color settings for the PDF'),
-  pageSetup: z
-    .object({
-      size: z
-        .union([z.enum(['LETTER', 'A4', 'LEGAL']), z.tuple([z.number(), z.number()])])
-        .optional()
-        .describe('Page size preset or custom [width, height] in points. LETTER: 612×792pt (8.5×11in). A4: 595×842pt (210×297mm). LEGAL: 612×1008pt (8.5×14in). Default: LETTER.'),
-      margins: z
-        .object({
-          top: z.number(),
-          bottom: z.number(),
-          left: z.number(),
-          right: z.number(),
-        })
-        .optional()
-        .describe('Page margins in points. all 4 (top, bottom, left, right) are REQUIRED if provided. Defaults vary by page size (LETTER/LEGAL: 72pt, A4: ~56pt).'),
-    })
-    .optional()
-    .describe('Page configuration including size and margins.'),
-  content: z.array(flowingContentItemSchema).describe('Document content in flow order'),
+  filename: z.string().default("document.pdf"),
+  title: z.string().default(""),
+  author: z.string().default(""),
+  font: z.string().default("auto"),
+  markdown: z.boolean().default(false),
+  color: z.object({
+    background: z.string().default("white"),
+    hyperlink: z.string().default("#0066CC"),
+  }).default({ background: "white", hyperlink: "#0066CC" }),
+  pageSetup: z.object({
+    size: z.union([
+      z.enum(["LETTER", "A4", "LEGAL"]),
+      z.tuple([z.number(), z.number()]),
+    ]).default("LETTER"),
+    margins: z.object({
+      top: z.number(),
+      bottom: z.number(),
+      left: z.number(),
+      right: z.number(),
+    }).optional(),
+  }).default({ size: "LETTER" }),
+  content: z.array(flowingContentItemSchema),
 });
+
 
 const config = {
   title: 'Create PDF Document',
@@ -95,12 +100,32 @@ Default margins: Varies by page size (e.g., 72pt/1" for Letter, ~56pt for A4).`,
 export type Input = z.infer<typeof inputSchema>;
 
 export default function createTool() {
-  async function handler(args: Input, extra: StorageExtra): Promise<CallToolResult> {
+  async function handler(rawArgs: unknown, extra: StorageExtra): Promise<CallToolResult> {
+    const args = inputSchema.parse(rawArgs);
     const { storageContext } = extra;
     const { resourceStoreUri, baseUrl, transport } = storageContext;
-    const { filename = 'document.pdf', title, author, font, markdown, color, pageSetup, content } = args;
-    const parseMarkdown = markdown ?? false;
-    const hyperlinkColor = color?.hyperlink ?? '#0066CC';
+
+
+    const {
+      filename = "document.pdf",
+      title = "",
+      author = "",
+      font = "auto",
+      markdown,
+      color,
+      pageSetup,
+      content,
+    } = args;
+
+const parseMarkdown = markdown ?? false;
+
+const pageSize = pageSetup?.size ?? defaultPageSetup.size;
+
+// margins: if caller omitted margins (or omitted pageSetup entirely), you still get a full object
+const margins = pageSetup?.margins ?? defaultMargins;
+
+const backgroundColor = color?.background ?? "white";
+const hyperlinkColor = color?.hyperlink ?? "#0066CC";
 
     try {
       // Resolve page size and margins
