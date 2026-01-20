@@ -53,6 +53,7 @@
   "scripts": {
     "build": "tsds build",
     "format": "tsds format",
+    "start": "npx @mcp-z/mcp-pdf@latest --port ${PORT:-9010}",
     "generate:types": "json2ts assets/resume.schema.json assets/resume.d.ts --bannerComment \"/* eslint-disable */\n/* Auto-generated from assets/resume.schema.json - DO NOT EDIT */\"",
     "postinstall": "node scripts/postinstall.cjs",
     "prepublish:check": "ncp",
